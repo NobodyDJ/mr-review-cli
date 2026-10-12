@@ -1,5 +1,6 @@
 
 import { execFile } from 'node:child_process'
+import type { ChangedFile } from './type'
 
 function getGitDiff(targetBranch: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -19,7 +20,11 @@ function getGitDiff(targetBranch: string): Promise<string> {
   })
 }
 
-
+/**
+ * 获取变更文件列表
+ * @param targetBranch 目标分支
+ * @returns 变更文件列表
+ */
 function getChangedFiles(targetBranch: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -42,6 +47,54 @@ function getChangedFiles(targetBranch: string): Promise<string[]> {
   })
 }
 
+/**
+ * 获取变更文件列表及其状态
+ * @param targetBranch 目标分支
+ * @returns 变更文件列表及其状态
+ */
+function getChangedFilesWithStatus(
+  targetBranch: string,
+): Promise<ChangedFile[]> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'git',
+      ['diff', '--name-status', `${targetBranch}...HEAD`, '--'],
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr.trim() || error.message))
+          return
+        }
+
+        const files = stdout
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => {
+            const [status, ...pathParts] = line.split('\t')
+
+            return {
+              status,
+              path: pathParts.join('\t'),
+            }
+          })
+
+        resolve(files)
+      },
+    )
+  })
+}
+
+/**
+ * 获取需要评审的文件列表
+ * @param files 
+ * @returns 
+ */
+function getReviewTargets(files: ChangedFile[]): ChangedFile[] {
+  return files.filter(
+    ({ status }) => status === 'M' || status === 'A',
+  )
+}
+
 
 async function main() {
   const targetBranch = process.argv[2] || 'dev' // 默认目标分支为dev
@@ -49,14 +102,29 @@ async function main() {
   try {
     const diff = await getGitDiff(targetBranch)
 
-    const files = await getChangedFiles(targetBranch)
 
-    console.log('\n本次变更文件：')
+   const filesWithStatus = await getChangedFilesWithStatus(targetBranch)
 
-    if (files.length === 0) {
+    console.log('\n本次变更文件状态：')
+
+    if (filesWithStatus.length === 0) {
         console.log('没有变更文件')
     } else {
-        files.forEach((file) => console.log(`- ${file}`))
+        filesWithStatus.forEach(({ status, path }) => {
+            console.log(`[${status}] ${path}`)
+        })
+    }
+
+    const reviewTargets = getReviewTargets(filesWithStatus)
+
+    console.log('\n待审查文件：')
+
+    if (reviewTargets.length === 0) {
+        console.log('没有需要审查的新增或修改文件')
+    } else {
+        reviewTargets.forEach(({ status, path }) => {
+            console.log(`[${status}] ${path}`)
+        })
     }
 
     if (!diff.trim()) {
