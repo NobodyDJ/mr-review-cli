@@ -19,11 +19,45 @@ function getGitDiff(targetBranch: string): Promise<string> {
   })
 }
 
+
+function getChangedFiles(targetBranch: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'git',
+      ['diff', '--name-only', `${targetBranch}...HEAD`, '--'],
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr.trim() || error.message))
+          return
+        }
+
+        const files = stdout
+          .split('\n')
+          .map((file) => file.trim())
+          .filter(Boolean)
+
+        resolve(files)
+      },
+    )
+  })
+}
+
+
 async function main() {
   const targetBranch = process.argv[2] || 'dev' // 默认目标分支为dev
 
   try {
     const diff = await getGitDiff(targetBranch)
+
+    const files = await getChangedFiles(targetBranch)
+
+    console.log('\n本次变更文件：')
+
+    if (files.length === 0) {
+        console.log('没有变更文件')
+    } else {
+        files.forEach((file) => console.log(`- ${file}`))
+    }
 
     if (!diff.trim()) {
       console.log('没有发现已提交的代码变更。')
