@@ -1,16 +1,22 @@
 
 import { execFile } from 'node:child_process'
-import type { ChangedFile } from './type'
+import type { ChangedFile } from './type.ts'
 
-function getGitDiff(targetBranch: string): Promise<string> {
+function getGitDiff(
+  projectPath: string,
+  targetBranch: string,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       ['diff', `${targetBranch}...HEAD`, '--'],
-      { maxBuffer: 10 * 1024 * 1024 },
+      {
+        cwd: projectPath,
+        maxBuffer: 10 * 1024 * 1024,
+      },
       (error, stdout, stderr) => {
         if (error) {
-          reject(new Error(stderr.trim() || error.message))
+          reject(new Error(stderr || error.message))
           return
         }
 
@@ -53,12 +59,17 @@ function getChangedFiles(targetBranch: string): Promise<string[]> {
  * @returns 变更文件列表及其状态
  */
 function getChangedFilesWithStatus(
+  projectPath: string,
   targetBranch: string,
 ): Promise<ChangedFile[]> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       ['diff', '--name-status', `${targetBranch}...HEAD`, '--'],
+      {
+        cwd: projectPath,
+        maxBuffer: 10 * 1024 * 1024,
+      },
       (error, stdout, stderr) => {
         if (error) {
           reject(new Error(stderr.trim() || error.message))
@@ -70,7 +81,7 @@ function getChangedFilesWithStatus(
           .split('\n')
           .filter(Boolean)
           .map((line) => {
-            const [status, ...pathParts] = line.split('\t')
+            const [status = '', ...pathParts] = line.split('\t')
 
             return {
               status,
@@ -95,15 +106,59 @@ function getReviewTargets(files: ChangedFile[]): ChangedFile[] {
   )
 }
 
+/**
+ * 运行 TypeScript 类型检查
+ * @param projectPath 项目路径
+ * @returns 
+ */
+function runTypeCheck(projectPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'npx',
+      ['tsc', '--noEmit'],
+      {
+        cwd: projectPath,
+        windowsHide: true,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error([stdout, stderr].filter(Boolean).join('\n') || error.message));
+          return;
+        }
+
+        console.log('TypeScript 类型检查通过。');
+        resolve();
+      },
+    );
+  });
+}
+
+
 
 async function main() {
-  const targetBranch = process.argv[2] || 'dev' // 默认目标分支为dev
+  const projectPath = process.argv[2]
+  const targetBranch = process.argv[3] || 'dev'
+
+  if (!projectPath) {
+    console.error('请提供目标项目路径')
+    console.error(
+      '用法：npx tsx src/index.ts "<项目路径>" [目标分支]',
+    )
+    process.exitCode = 1
+    return
+  }
+
+  console.log(`目标项目：${projectPath}`)
+  console.log(`目标分支：${targetBranch}`)
 
   try {
-    const diff = await getGitDiff(targetBranch)
+    const diff = await getGitDiff(projectPath, targetBranch)
 
-
-   const filesWithStatus = await getChangedFilesWithStatus(targetBranch)
+    const filesWithStatus = await getChangedFilesWithStatus(
+        projectPath,
+        targetBranch,
+    )
 
     console.log('\n本次变更文件状态：')
 

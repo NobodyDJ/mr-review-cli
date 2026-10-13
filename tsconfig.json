@@ -9,10 +9,10 @@
     // See also https://aka.ms/tsconfig/module
     "module": "nodenext",
     "target": "esnext",
-    "types": [],
+    // "types": [],
     // For nodejs:
     // "lib": ["esnext"],
-    // "types": ["node"],
+    "types": ["node"], // "types": ["node"] 告诉 TypeScript 加载 Node.js 的全局类型。
     // and npm install -D @types/node
 
     // Other Outputs
