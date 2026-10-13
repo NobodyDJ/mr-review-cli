@@ -114,8 +114,10 @@ function getReviewTargets(files: ChangedFile[]): ChangedFile[] {
 function runTypeCheck(projectPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(
-      'npx',
-      ['tsc', '--noEmit'],
+      process.platform === 'win32' ? 'cmd.exe' : 'npx',
+      process.platform === 'win32'
+        ? ['/d', '/s', '/c', 'npx tsc --noEmit']
+        : ['tsc', '--noEmit'],
       {
         cwd: projectPath,
         windowsHide: true,
@@ -134,7 +136,33 @@ function runTypeCheck(projectPath: string): Promise<void> {
   });
 }
 
+async function reviewProject(projectPath: string, targetBranch: string) {
+  const diff = await getGitDiff(projectPath, targetBranch)
+  const filesWithStatus = await getChangedFilesWithStatus(projectPath, targetBranch)
 
+  console.log('\n本次变更文件状态：')
+  if (filesWithStatus.length === 0) {
+    console.log('没有变更文件')
+  } else {
+    filesWithStatus.forEach(({ status, path }) => {
+      console.log(`[${status}] ${path}`)
+    })
+  }
+
+  const reviewTargets = getReviewTargets(filesWithStatus)
+  console.log('\n待审查文件：')
+  if (reviewTargets.length === 0) {
+    console.log('没有需要审查的新增或修改文件')
+  } else {
+    reviewTargets.forEach(({ status, path }) => {
+      console.log(`[${status}] ${path}`)
+    })
+  }
+
+  if (!diff.trim()) {
+    console.log('没有发现已提交的代码变更。')
+  }
+}
 
 async function main() {
   const projectPath = process.argv[2]
@@ -149,48 +177,14 @@ async function main() {
     return
   }
 
-  console.log(`目标项目：${projectPath}`)
-  console.log(`目标分支：${targetBranch}`)
-
   try {
-    const diff = await getGitDiff(projectPath, targetBranch)
-
-    const filesWithStatus = await getChangedFilesWithStatus(
-        projectPath,
-        targetBranch,
-    )
-
-    console.log('\n本次变更文件状态：')
-
-    if (filesWithStatus.length === 0) {
-        console.log('没有变更文件')
-    } else {
-        filesWithStatus.forEach(({ status, path }) => {
-            console.log(`[${status}] ${path}`)
-        })
-    }
-
-    const reviewTargets = getReviewTargets(filesWithStatus)
-
-    console.log('\n待审查文件：')
-
-    if (reviewTargets.length === 0) {
-        console.log('没有需要审查的新增或修改文件')
-    } else {
-        reviewTargets.forEach(({ status, path }) => {
-            console.log(`[${status}] ${path}`)
-        })
-    }
-
-    if (!diff.trim()) {
-      console.log('没有发现已提交的代码变更。')
-      return
-    }
-
-    console.log(diff)
+    await runTypeCheck(projectPath)
+    console.log(`目标项目：${projectPath}`)
+    console.log(`目标分支：${targetBranch}`)
+    await reviewProject(projectPath, targetBranch)
   } catch (error) {
     console.error(
-      '读取 Git diff 失败：',
+      '执行审查失败：',
       error instanceof Error ? error.message : error,
     )
     process.exitCode = 1
