@@ -1,29 +1,29 @@
 
 import { execFile } from 'node:child_process'
-import type { ChangedFile } from './type.ts'
+import type { ChangedFile, CheckResult } from './type.ts'
 
 function getGitDiff(
   projectPath: string,
   targetBranch: string,
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'git',
-      ['diff', `${targetBranch}...HEAD`, '--'],
-      {
-        cwd: projectPath,
-        maxBuffer: 10 * 1024 * 1024,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(stderr || error.message))
-          return
-        }
+	return new Promise((resolve, reject) => {
+		execFile(
+		'git',
+		['diff', `${targetBranch}...HEAD`, '--'],
+		{
+			cwd: projectPath,
+			maxBuffer: 10 * 1024 * 1024,
+		},
+		(error, stdout, stderr) => {
+			if (error) {
+			reject(new Error(stderr || error.message))
+			return
+			}
 
-        resolve(stdout)
-      },
-    )
-  })
+			resolve(stdout)
+		},
+		)
+	})
 }
 
 /**
@@ -32,25 +32,25 @@ function getGitDiff(
  * @returns 变更文件列表
  */
 function getChangedFiles(targetBranch: string): Promise<string[]> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'git',
-      ['diff', '--name-only', `${targetBranch}...HEAD`, '--'],
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(stderr.trim() || error.message))
-          return
-        }
+	return new Promise((resolve, reject) => {
+		execFile(
+		'git',
+		['diff', '--name-only', `${targetBranch}...HEAD`, '--'],
+		(error, stdout, stderr) => {
+			if (error) {
+				reject(new Error(stderr.trim() || error.message))
+				return
+			}
 
-        const files = stdout
-          .split('\n')
-          .map((file) => file.trim())
-          .filter(Boolean)
+			const files = stdout
+			.split('\n')
+			.map((file) => file.trim())
+			.filter(Boolean)
 
-        resolve(files)
-      },
-    )
-  })
+			resolve(files)
+		},
+		)
+	})
 }
 
 /**
@@ -62,37 +62,37 @@ function getChangedFilesWithStatus(
   projectPath: string,
   targetBranch: string,
 ): Promise<ChangedFile[]> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'git',
-      ['diff', '--name-status', `${targetBranch}...HEAD`, '--'],
-      {
-        cwd: projectPath,
-        maxBuffer: 10 * 1024 * 1024,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(stderr.trim() || error.message))
-          return
-        }
+	return new Promise((resolve, reject) => {
+		execFile(
+		'git',
+		['diff', '--name-status', `${targetBranch}...HEAD`, '--'],
+		{
+			cwd: projectPath,
+			maxBuffer: 10 * 1024 * 1024,
+		},
+		(error, stdout, stderr) => {
+			if (error) {
+			reject(new Error(stderr.trim() || error.message))
+			return
+			}
 
-        const files = stdout
-          .trim()
-          .split('\n')
-          .filter(Boolean)
-          .map((line) => {
-            const [status = '', ...pathParts] = line.split('\t')
+			const files = stdout
+			.trim()
+			.split('\n')
+			.filter(Boolean)
+			.map((line) => {
+				const [status = '', ...pathParts] = line.split('\t')
 
-            return {
-              status,
-              path: pathParts.join('\t'),
-            }
-          })
+				return {
+				status,
+				path: pathParts.join('\t'),
+				}
+			})
 
-        resolve(files)
-      },
-    )
-  })
+			resolve(files)
+		},
+		)
+	})
 }
 
 /**
@@ -101,9 +101,9 @@ function getChangedFilesWithStatus(
  * @returns 
  */
 function getReviewTargets(files: ChangedFile[]): ChangedFile[] {
-  return files.filter(
-    ({ status }) => status === 'M' || status === 'A',
-  )
+	return files.filter(
+		({ status }) => status === 'M' || status === 'A',
+	)
 }
 
 /**
@@ -111,84 +111,133 @@ function getReviewTargets(files: ChangedFile[]): ChangedFile[] {
  * @param projectPath 项目路径
  * @returns 
  */
-function runTypeCheck(projectPath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      process.platform === 'win32' ? 'cmd.exe' : 'npx',
-      process.platform === 'win32'
-        ? ['/d', '/s', '/c', 'npx tsc --noEmit']
-        : ['tsc', '--noEmit'],
-      {
-        cwd: projectPath,
-        windowsHide: true,
-        maxBuffer: 10 * 1024 * 1024,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error([stdout, stderr].filter(Boolean).join('\n') || error.message));
-          return;
-        }
 
-        console.log('TypeScript 类型检查通过。');
-        resolve();
-      },
+function runTypeCheck(projectPath: string): Promise<CheckResult> {
+	return new Promise((resolve) => {
+		const command =
+			process.platform === 'win32' ? 'cmd.exe' : 'npx'
+
+		const args =
+			process.platform === 'win32'
+				? ['/d', '/s', '/c', 'npx tsc -b --pretty false']
+				: ['tsc', '-b', '--pretty', 'false']
+
+		execFile(command, args, {
+			cwd: projectPath,
+			windowsHide: true,
+			maxBuffer: 10 * 1024 * 1024,
+		}, (error, stdout, stderr) => {
+			const output = [stdout, stderr]
+				.filter(Boolean)
+				.join('\n')
+				.trim()
+
+			resolve({
+				name: 'TypeScript',
+				passed: !error,
+				output: error
+					? output || error.message
+					: output || '未发现 TypeScript 类型错误。',
+			})
+		})
+	})
+}
+
+/**
+ * 审查项目
+ * @param projectPath 
+ * @param targetBranch 
+ */
+async function reviewProject(projectPath: string, targetBranch: string) {
+	const diff = await getGitDiff(projectPath, targetBranch)
+	const filesWithStatus = await getChangedFilesWithStatus(projectPath, targetBranch)
+
+	console.log('\n本次变更文件状态：')
+	if (filesWithStatus.length === 0) {
+		console.log('没有变更文件')
+	} else {
+		filesWithStatus.forEach(({ status, path }) => {
+		console.log(`[${status}] ${path}`)
+		})
+	}
+
+	const reviewTargets = getReviewTargets(filesWithStatus)
+	console.log('\n待审查文件：')
+	if (reviewTargets.length === 0) {
+		console.log('没有需要审查的新增或修改文件')
+	} else {
+		reviewTargets.forEach(({ status, path }) => {
+		console.log(`[${status}] ${path}`)
+		})
+	}
+
+	if (!diff.trim()) {
+		console.log('没有发现已提交的代码变更。')
+	}
+}
+
+/**
+ * 打印检查摘要
+ * @param results 
+ */
+function printCheckSummary(results: CheckResult[]): void {
+  console.log('\n========== 检查汇总 ==========');
+
+  results.forEach((result) => {
+    console.log(
+      `[${result.passed ? '通过' : '失败'}] ${result.name}`,
     );
   });
+
+  const failedCount = results.filter(
+    (result) => !result.passed,
+  ).length;
+
+  console.log(`检查项：${results.length}`);
+  console.log(`失败项：${failedCount}`);
 }
 
-async function reviewProject(projectPath: string, targetBranch: string) {
-  const diff = await getGitDiff(projectPath, targetBranch)
-  const filesWithStatus = await getChangedFilesWithStatus(projectPath, targetBranch)
-
-  console.log('\n本次变更文件状态：')
-  if (filesWithStatus.length === 0) {
-    console.log('没有变更文件')
-  } else {
-    filesWithStatus.forEach(({ status, path }) => {
-      console.log(`[${status}] ${path}`)
-    })
-  }
-
-  const reviewTargets = getReviewTargets(filesWithStatus)
-  console.log('\n待审查文件：')
-  if (reviewTargets.length === 0) {
-    console.log('没有需要审查的新增或修改文件')
-  } else {
-    reviewTargets.forEach(({ status, path }) => {
-      console.log(`[${status}] ${path}`)
-    })
-  }
-
-  if (!diff.trim()) {
-    console.log('没有发现已提交的代码变更。')
-  }
-}
 
 async function main() {
-  const projectPath = process.argv[2]
-  const targetBranch = process.argv[3] || 'dev'
+	const projectPath = process.argv[2]
+	const targetBranch = process.argv[3] || 'dev'
+	const checkResults: CheckResult[] = []
 
-  if (!projectPath) {
-    console.error('请提供目标项目路径')
-    console.error(
-      '用法：npx tsx src/index.ts "<项目路径>" [目标分支]',
-    )
-    process.exitCode = 1
-    return
-  }
+	if (!projectPath) {
+		console.error('请提供目标项目路径')
+		console.error(
+		'用法：npx tsx src/index.ts "<项目路径>" [目标分支]',
+		)
+		process.exitCode = 1
+		return
+	}
 
-  try {
-    await runTypeCheck(projectPath)
-    console.log(`目标项目：${projectPath}`)
-    console.log(`目标分支：${targetBranch}`)
-    await reviewProject(projectPath, targetBranch)
-  } catch (error) {
-    console.error(
-      '执行审查失败：',
-      error instanceof Error ? error.message : error,
-    )
-    process.exitCode = 1
-  }
+	try {
+		const typeCheckResult = await runTypeCheck(projectPath);
+		checkResults.push(typeCheckResult);
+
+		console.log('\nTypeScript 检查结果：');
+		console.log(
+		`[${typeCheckResult.passed ? '通过' : '失败'}] ${typeCheckResult.name}`,
+		);
+
+		if (typeCheckResult.output) {
+			console.log(typeCheckResult.output);
+		}
+
+		console.log(`\n目标项目：${projectPath}`);
+		console.log(`目标分支：${targetBranch}`);
+
+		await reviewProject(projectPath, targetBranch);
+		printCheckSummary(checkResults);
+
+	} catch (error) {
+		console.error(
+		'执行审查失败：',
+		error instanceof Error ? error.message : error,
+		)
+		process.exitCode = 1
+	}
 }
 
 main()

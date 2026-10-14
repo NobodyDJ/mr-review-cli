@@ -3,4 +3,10 @@ type ChangedFile = {
   path: string
 }
 
-export type { ChangedFile }
+type CheckResult = {
+  name: string
+  passed: boolean
+  output: string
+}
+
+export type { ChangedFile, CheckResult }
