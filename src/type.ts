@@ -5,7 +5,7 @@ type ChangedFile = {
 
 type CheckResult = {
   name: string
-  passed: boolean
+  status: 'passed' | 'warning' | 'failed'
   output: string
 }
 
