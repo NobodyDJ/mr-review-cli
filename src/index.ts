@@ -1,6 +1,7 @@
 
 import { execFile } from 'node:child_process'
-import type { ChangedFile, CheckResult } from './type.ts'
+import type { ChangedFile, CheckResult } from './type.js'
+import { reviewCode } from './kimi.js'
 
 function getGitDiff(
   projectPath: string,
@@ -256,8 +257,42 @@ async function reviewProject(projectPath: string, targetBranch: string) {
 		return
 	}
 
-	console.log('本次代码差异：')
+	console.log('\n本次代码差异：')
 	console.log(diff)
+
+	console.log('\n========== Kimi 代码审查 ==========')
+
+	try {
+		const reviewResult = await reviewCode(diff)
+
+		console.log('\n审查摘要：')
+		console.log(reviewResult.summary)
+
+		console.log('\n发现的问题：')
+
+		if (reviewResult.issues.length === 0) {
+			console.log('未发现明确的代码缺陷。')
+		} else {
+			for (const issue of reviewResult.issues) {
+			console.log(`\n[${issue.severity}] ${issue.title}`)
+			console.log(`文件：${issue.file}`)
+			console.log(`行号：${issue.line ?? '未知'}`)
+			console.log(`问题：${issue.description}`)
+			console.log(`建议：${issue.suggestion}`)
+			console.log(`依据：${issue.evidence}`)
+			}
+		}
+	} catch (error: unknown) {
+		console.error('\n[Kimi 审查失败]')
+
+		if (error instanceof Error) {
+			console.error(error.message)
+		} else {
+			console.error(error)
+		}
+
+		console.log('跳过 AI 审查，继续执行本地检查。')
+	}
 }
 
 /**

@@ -9,4 +9,19 @@ type CheckResult = {
   output: string
 }
 
-export type { ChangedFile, CheckResult }
+type ReviewIssue = {
+  severity: 'P1' | 'P2' | 'P3'
+  file: string
+  line: number | null
+  title: string
+  description: string
+  suggestion: string
+  evidence: string
+}
+
+type ReviewResult = {
+  summary: string
+  issues: ReviewIssue[]
+}
+
+export type { ChangedFile, CheckResult, ReviewIssue, ReviewResult }
