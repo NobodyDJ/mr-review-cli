@@ -79,5 +79,61 @@ export async function reviewCode(diff: string): Promise<ReviewResult> {
         throw new Error('Kimi 未返回审查内容')
     }
 
-    return JSON.parse(content) as ReviewResult
+    const data: unknown = JSON.parse(content)
+
+    return validateReviewResult(data)
+}
+
+/**
+ * 验证审查结果的结构和类型
+ * @param data 
+ * @returns 
+ */
+export function validateReviewResult(data: unknown): ReviewResult {
+  if (typeof data !== 'object' || data === null) {
+    throw new Error('审查结果必须是一个对象')
+  }
+
+  const result = data as Record<string, unknown>
+
+  if (typeof result.summary !== 'string') {
+    throw new Error('审查结果缺少有效的 summary 字段')
+  }
+
+  if (!Array.isArray(result.issues)) {
+    throw new Error('审查结果缺少有效的 issues 数组')
+  }
+
+  return {
+    summary: result.summary,
+    issues: result.issues.map((item: unknown, index: number): ReviewIssue => {
+      if (typeof item !== 'object' || item === null) {
+        throw new Error(`第 ${index + 1} 个问题不是有效对象`)
+      }
+
+      const issue = item as Record<string, unknown>
+
+      if (
+        !['P1', 'P2', 'P3'].includes(issue.severity as string) ||
+        typeof issue.file !== 'string' ||
+        !(typeof issue.line === 'number' || issue.line === null) ||
+        typeof issue.title !== 'string' ||
+        typeof issue.description !== 'string' ||
+        typeof issue.suggestion !== 'string' ||
+        typeof issue.evidence !== 'string'
+      ) {
+        throw new Error(`第 ${index + 1} 个问题的字段不符合要求`)
+      }
+
+      return {
+        severity: issue.severity as ReviewIssue['severity'],
+        file: issue.file,
+        line: issue.line,
+        title: issue.title,
+        description: issue.description,
+        suggestion: issue.suggestion,
+        evidence: issue.evidence,
+      }
+    }),
+  }
 }
