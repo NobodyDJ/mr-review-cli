@@ -116,7 +116,12 @@ export function validateReviewResult(data: unknown): ReviewResult {
       if (
         !['P1', 'P2', 'P3'].includes(issue.severity as string) ||
         typeof issue.file !== 'string' ||
-        !(typeof issue.line === 'number' || issue.line === null) ||
+        !(
+          issue.line === null ||
+          (typeof issue.line === 'number' &&
+            Number.isInteger(issue.line) &&
+            issue.line >= 1)
+        ) ||
         typeof issue.title !== 'string' ||
         typeof issue.description !== 'string' ||
         typeof issue.suggestion !== 'string' ||
