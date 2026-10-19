@@ -12,4 +12,4 @@ npx tsc --init
 - 筛选出需要审查的新增和修改文件。
 - 通过自身的 TypeScript 类型检查。
 
-代码比较命令：npx tsx src/index.ts "D:\workspace\mr-review-cli" dev
+代码比较命令：npx tsx src/index.ts "D:\workspace\water-drop-pc" main
