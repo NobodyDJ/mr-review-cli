@@ -1,5 +1,7 @@
 
 import { execFile } from 'node:child_process'
+import { access, readFile } from 'node:fs/promises'
+import path from 'node:path'
 import type { ChangedFile, CheckResult } from './type.js'
 import { reviewCode } from './kimi.js'
 
@@ -125,16 +127,60 @@ function getReviewTargets(files: ChangedFile[]): ChangedFile[] {
  * @param projectPath 项目路径
  * @returns 
  */
-function runTypeCheck(projectPath: string): Promise<CheckResult> {
+/**
+ * 判断目标项目是否安装了指定的本地依赖。
+ * @param projectPath 目标项目路径
+ * @param packageName 依赖包名称
+ * @returns 是否存在本地依赖
+ */
+async function hasLocalDependency(projectPath: string, packageName: string): Promise<boolean> {
+	try {
+		const packageJson = JSON.parse(
+			await readFile(path.join(projectPath, 'package.json'), 'utf8'),
+		) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string>; peerDependencies?: Record<string, string> }
+		const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies, ...packageJson.peerDependencies }
+		if (dependencies[packageName]) return true
+	} catch {
+		// package.json 不存在或格式无效时，继续检查 node_modules。
+	}
+
+	try {
+		await access(path.join(projectPath, 'node_modules', packageName, 'package.json'))
+		return true
+	} catch {
+		return false
+	}
+}
+
+/**
+ * 根据目标项目安装的依赖选择类型检查器。
+ * @param projectPath 目标项目路径
+ * @returns 类型检查命令及参数
+ */
+async function resolveTypeCheckCommand(projectPath: string): Promise<{ command: string; args: string[] }> {
+	const checker = await hasLocalDependency(projectPath, 'vue-tsc') ? 'vue-tsc' : 'tsc'
+	// Vite projects commonly use a root tsconfig that only contains project
+	// references.  Plain `tsc` treats that config as having no input files and
+	// exits successfully without checking the referenced application config.
+	// Build mode follows those references while --noEmit keeps this check read-only.
+	const checkerArgs = `--no-install ${checker} -b --noEmit --pretty false`
+
+	return {
+		command: process.platform === 'win32' ? 'cmd.exe' : 'npx',
+		args: process.platform === 'win32'
+			? ['/d', '/s', '/c', `npx ${checkerArgs}`]
+			: checkerArgs.split(' '),
+	}
+}
+
+/**
+ * 运行 TypeScript 类型检查，不生成编译文件。
+ * @param projectPath 目标项目路径
+ * @returns TypeScript 检查结果
+ */
+async function runTypeCheck(projectPath: string): Promise<CheckResult> {
+	const { command, args } = await resolveTypeCheckCommand(projectPath)
 	return new Promise((resolve) => {
-		const command =
-			process.platform === 'win32' ? 'cmd.exe' : 'npx'
-
-		const args =
-			process.platform === 'win32'
-				? ['/d', '/s', '/c', 'npx tsc -b --pretty false']
-				: ['tsc', '-b', '--pretty', 'false']
-
 		execFile(command, args, {
 			cwd: projectPath,
 			windowsHide: true,
