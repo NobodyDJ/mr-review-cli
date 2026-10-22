@@ -97,11 +97,11 @@ export function validateReviewResult(data: unknown): ReviewResult {
   const result = data as Record<string, unknown>
 
   if (typeof result.summary !== 'string') {
-    throw new TypeError('审查结果缺少有效的 summary 字段')
+    throw new Error('审查结果缺少有效的 summary 字段')
   }
 
   if (!Array.isArray(result.issues)) {
-    throw new TypeError('审查结果缺少有效的 issues 数组')
+    throw new Error('审查结果缺少有效的 issues 数组')
   }
 
   return {
