@@ -1,3 +1,5 @@
+import type { reviewCode } from "./kimi.js"
+
 type ChangedFile = {
   status: string
   path: string
@@ -24,4 +26,13 @@ type ReviewResult = {
   issues: ReviewIssue[]
 }
 
-export type { ChangedFile, CheckResult, ReviewIssue, ReviewResult }
+type ProjectReviewResult = {
+  status: 'completed' | 'skipped' | 'failed'
+  summary: string
+  issues: Awaited<ReturnType<typeof reviewCode>>['issues']
+  error?: string
+  changedFiles: ChangedFile[]
+  reviewTargets: ChangedFile[]
+}
+
+export type { ChangedFile, CheckResult, ReviewIssue, ReviewResult, ProjectReviewResult }
