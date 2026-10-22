@@ -1,9 +1,10 @@
-
+﻿
 import { execFile } from 'node:child_process'
-import { access, readFile } from 'node:fs/promises'
+import { access, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { ChangedFile, CheckResult } from './type.js'
+import type { ChangedFile, CheckResult, ProjectReviewResult } from './type.js'
 import { reviewCode } from './kimi.js'
+import { pathToFileURL } from 'node:url'
 
 function getGitDiff(
   projectPath: string,
@@ -157,7 +158,7 @@ async function hasLocalDependency(projectPath: string, packageName: string): Pro
  * @param projectPath 目标项目路径
  * @returns 类型检查命令及参数
  */
-async function resolveTypeCheckCommand(projectPath: string): Promise<{ command: string; args: string[] }> {
+export async function resolveTypeCheckCommand(projectPath: string): Promise<{ command: string; args: string[] }> {
 	const checker = await hasLocalDependency(projectPath, 'vue-tsc') ? 'vue-tsc' : 'tsc'
 	// Vite projects commonly use a root tsconfig that only contains project
 	// references.  Plain `tsc` treats that config as having no input files and
@@ -178,7 +179,7 @@ async function resolveTypeCheckCommand(projectPath: string): Promise<{ command: 
  * @param projectPath 目标项目路径
  * @returns TypeScript 检查结果
  */
-async function runTypeCheck(projectPath: string): Promise<CheckResult> {
+export async function runTypeCheck(projectPath: string): Promise<CheckResult> {
 	const { command, args } = await resolveTypeCheckCommand(projectPath)
 	return new Promise((resolve) => {
 		execFile(command, args, {
@@ -255,90 +256,119 @@ function runEslintCheck(
 
 
 /**
- * 审查项目
- * @param projectPath 
- * @param targetBranch 
+ * 审查项目并返回结构化结果
  */
-async function reviewProject(projectPath: string, targetBranch: string) {
-	const filesWithStatus = await getChangedFilesWithStatus(
-		projectPath,
-		targetBranch,
-	)
+async function reviewProject(
+  projectPath: string,
+  targetBranch: string,
+): Promise<ProjectReviewResult> {
+  const filesWithStatus = await getChangedFilesWithStatus(
+    projectPath,
+    targetBranch,
+  )
 
-	console.log('\n本次变更文件状态：')
-	if (filesWithStatus.length === 0) {
-		console.log('没有变更文件')
-	} else {
-		filesWithStatus.forEach(({ status, path }) => {
-			console.log(`[${status}] ${path}`)
-		})
-	}
+  console.log('\n本次变更文件状态：')
+  if (filesWithStatus.length === 0) {
+    console.log('没有变更文件')
+  } else {
+    filesWithStatus.forEach(({ status, path }) => {
+      console.log(`[${status}] ${path}`)
+    })
+  }
 
-	const reviewTargets = getReviewTargets(filesWithStatus)
+  const reviewTargets = getReviewTargets(filesWithStatus)
 
-	const diff = reviewTargets.length > 0
-	? await getGitDiff(
-		projectPath,
-		targetBranch,
-		reviewTargets.map(({ path }) => path),
-		)
-	: ''
+  console.log('\n待审查文件：')
+  if (reviewTargets.length === 0) {
+    console.log('没有需要审查的新增或修改文件')
+  } else {
+    reviewTargets.forEach(({ status, path }) => {
+      console.log(`[${status}] ${path}`)
+    })
+  }
 
-	console.log('\n待审查文件：')
-	if (reviewTargets.length === 0) {
-		console.log('没有需要审查的新增或修改文件')
-	} else {
-		reviewTargets.forEach(({ status, path }) => {
-			console.log(`[${status}] ${path}`)
-		})
-	}
+  const emptyIssues: ProjectReviewResult['issues'] = []
 
-	if (reviewTargets.length === 0) {
-		console.log('跳过代码审查：没有符合条件的代码文件。')
-		return
-	}
+  if (reviewTargets.length === 0) {
+    console.log('跳过代码审查：没有符合条件的代码文件。')
 
-	if (!diff.trim()) {
-		console.log('没有发现符合条件的代码差异。')
-		return
-	}
+    return {
+      status: 'skipped',
+      summary: '没有符合条件的代码文件。',
+      issues: emptyIssues,
+      changedFiles: filesWithStatus,
+      reviewTargets,
+    }
+  }
 
-	console.log('\n本次代码差异：')
-	console.log(diff)
+  const diff = await getGitDiff(
+    projectPath,
+    targetBranch,
+    reviewTargets.map(({ path }) => path),
+  )
 
-	console.log('\n========== Kimi 代码审查 ==========')
+  if (!diff.trim()) {
+    console.log('没有发现符合条件的代码差异。')
 
-	try {
-		const reviewResult = await reviewCode(diff)
+    return {
+      status: 'skipped',
+      summary: '没有发现符合条件的代码差异。',
+      issues: emptyIssues,
+      changedFiles: filesWithStatus,
+      reviewTargets,
+    }
+  }
 
-		console.log('\n审查摘要：')
-		console.log(reviewResult.summary)
+  console.log('\n本次代码差异：')
+  console.log(diff)
 
-		console.log('\n发现的问题：')
+  console.log('\n========== Kimi 代码审查 ==========')
 
-		if (reviewResult.issues.length === 0) {
-			console.log('未发现明确的代码缺陷。')
-		} else {
-			for (const issue of reviewResult.issues) {
-			console.log(`\n[${issue.severity}] ${issue.title}`)
-			console.log(`文件：${issue.file}`)
-			console.log(`行号：${issue.line ?? '未知'}`)
-			console.log(`问题：${issue.description}`)
-			console.log(`建议：${issue.suggestion}`)
-			console.log(`依据：${issue.evidence}`)
-			}
-		}
-	} catch (error: unknown) {
-		console.error('\n[Kimi 审查失败]')
+  try {
+    const reviewResult = await reviewCode(diff)
 
-		if (error instanceof Error) {
-			console.error(error.message)
-		} else {
-			console.error(error)
-		}
+    console.log('\n审查摘要：')
+    console.log(reviewResult.summary)
 
-		console.log('跳过 AI 审查，继续执行本地检查。')
-	}
+    console.log('\n发现的问题：')
+
+    if (reviewResult.issues.length === 0) {
+      console.log('未发现明确的代码缺陷。')
+    } else {
+      for (const issue of reviewResult.issues) {
+        console.log(`\n[${issue.severity}] ${issue.title}`)
+        console.log(`文件：${issue.file}`)
+        console.log(`行号：${issue.line ?? '未知'}`)
+        console.log(`问题：${issue.description}`)
+        console.log(`建议：${issue.suggestion}`)
+        console.log(`依据：${issue.evidence}`)
+      }
+    }
+
+    return {
+      status: 'completed',
+      summary: reviewResult.summary,
+      issues: reviewResult.issues,
+      changedFiles: filesWithStatus,
+      reviewTargets,
+    }
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error)
+
+    console.error('\n[Kimi 审查失败]')
+    console.error(errorMessage)
+    console.log('跳过 AI 审查，继续执行本地检查。')
+
+    return {
+      status: 'failed',
+      summary: 'AI 代码审查失败。',
+      issues: emptyIssues,
+      error: errorMessage,
+      changedFiles: filesWithStatus,
+      reviewTargets,
+    }
+  }
 }
 
 /**
@@ -363,58 +393,125 @@ function printCheckSummary(results: CheckResult[]): void {
 }
 
 
+
 async function main() {
-	const projectPath = process.argv[2]
-	const targetBranch = process.argv[3] || 'dev'
-	const checkResults: CheckResult[] = []
+  const args = process.argv.slice(2)
+  const projectPath = args[0]
 
-	if (!projectPath) {
-		console.error('请提供目标项目路径')
-		console.error(
-			'用法：npx tsx src/index.ts "<项目路径>" [目标分支]',
-		)
-		process.exitCode = 1
-		return
-	}
+  const targetBranch =
+    args[1] && !args[1].startsWith('--') ? args[1] : 'dev'
 
-	try {
-		const typeCheckResult = await runTypeCheck(projectPath);
-		checkResults.push(typeCheckResult);
+  const outputIndex = args.indexOf('--output')
+  const outputPath =
+    outputIndex !== -1 ? args[outputIndex + 1] : undefined
 
-		console.log('\nTypeScript 检查结果：');
-		console.log(
-      		`[${typeCheckResult.status === 'passed' ? '通过' : typeCheckResult.status === 'warning' ? '警告' : '失败'}] ${typeCheckResult.name}`
-		);
+  const checkResults: CheckResult[] = []
 
-		if (typeCheckResult.output) {
-			console.log(typeCheckResult.output);
-		}
+  if (!projectPath) {
+    console.error('请提供目标项目路径')
+    console.error(
+      '用法：npx tsx src/index.ts "<项目路径>" [目标分支] [--output <报告路径>]',
+    )
+    process.exitCode = 1
+    return
+  }
 
-		const eslintResult = await runEslintCheck(projectPath);
-		checkResults.push(eslintResult);
+  if (outputIndex !== -1 && !outputPath) {
+    console.error('--output 后面必须提供报告文件路径')
+    process.exitCode = 1
+    return
+  }
 
-		console.log('\nESLint 检查结果：');
-		console.log(
-		`[${eslintResult.status === 'passed' ? '通过' : eslintResult.status === 'warning' ? '警告' : '失败'}] ${eslintResult.name}`,
-		);
+  try {
+    const typeCheckResult = await runTypeCheck(projectPath)
+    checkResults.push(typeCheckResult)
 
-		if (eslintResult.output) {
-			console.log(eslintResult.output);
-		}
+    console.log('\nTypeScript 检查结果：')
+    console.log(
+      `[${typeCheckResult.status === 'passed' ? '通过' : typeCheckResult.status === 'warning' ? '警告' : '失败'}] ${typeCheckResult.name}`,
+    )
+    if (typeCheckResult.output) {
+      console.log(typeCheckResult.output)
+    }
 
-		console.log(`\n目标项目：${projectPath}`);
-		console.log(`目标分支：${targetBranch}`);
+    const eslintResult = await runEslintCheck(projectPath)
+    checkResults.push(eslintResult)
 
-		await reviewProject(projectPath, targetBranch);
-		printCheckSummary(checkResults);
+    console.log('\nESLint 检查结果：')
+    console.log(
+      `[${eslintResult.status === 'passed' ? '通过' : eslintResult.status === 'warning' ? '警告' : '失败'}] ${eslintResult.name}`,
+    )
+    if (eslintResult.output) {
+      console.log(eslintResult.output)
+    }
 
-	} catch (error) {
-		console.error(
-			'执行审查失败：',
-			error instanceof Error ? error.message : error,
-		)
-		process.exitCode = 1
-	}
+    console.log(`\n目标项目：${projectPath}`)
+    console.log(`目标分支：${targetBranch}`)
+
+    const reviewResult = await reviewProject(projectPath, targetBranch)
+
+    printCheckSummary(checkResults)
+
+    const hasFailedCheck = checkResults.some(
+      (result) => result.status === 'failed',
+    )
+
+    const hasWarningCheck = checkResults.some(
+      (result) => result.status === 'warning',
+    )
+
+    const hasReviewIssues = reviewResult.issues.length > 0
+
+    let overallStatus: 'passed' | 'warning' | 'failed' = 'passed'
+    if (hasFailedCheck || reviewResult.status === 'failed') {
+      overallStatus = 'failed'
+    } else if (hasWarningCheck || hasReviewIssues) {
+      overallStatus = 'warning'
+    }
+
+    const report = {
+      generatedAt: new Date().toISOString(),
+      projectPath: path.resolve(projectPath),
+      targetBranch,
+      status: overallStatus,
+      checks: checkResults,
+      review: {
+        status: reviewResult.status,
+        summary: reviewResult.summary,
+        issues: reviewResult.issues,
+        error: reviewResult.error,
+        changedFiles: reviewResult.changedFiles,
+        reviewTargets: reviewResult.reviewTargets,
+      },
+    }
+
+    if (outputPath) {
+      const reportPath = path.resolve(outputPath)
+
+      await writeFile(
+        reportPath,
+        JSON.stringify(report, null, 2),
+        'utf8',
+      )
+
+      console.log(`\nJSON 报告已生成：${reportPath}`)
+    }
+
+    console.log(`\n整体审查状态：${overallStatus}`)
+
+    if (overallStatus === 'failed') {
+      process.exitCode = 1
+    }
+  } catch (error) {
+    console.error(
+      '执行审查失败：',
+      error instanceof Error ? error.message : error,
+    )
+    process.exitCode = 1
+  }
 }
 
-main()
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main()
+}
