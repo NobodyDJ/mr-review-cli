@@ -3,11 +3,11 @@ import OpenAI from 'openai'
 import 'dotenv/config'
 import type { ReviewIssue, ReviewResult } from './type.js'
 
-// 单次请求最长等待时间：45 秒
-const REQUEST_TIMEOUT = 45_000
+// 单次请求最长等待时间：120 秒
+const REQUEST_TIMEOUT = 120_000
 
-// 最多请求 3 次，包括第一次请求
-const MAX_ATTEMPTS = 3
+// 最多请求 2 次，包括第一次请求
+const MAX_ATTEMPTS = 2
 
 // 两次重试之间的基础等待时间
 const RETRY_DELAY = 1_000

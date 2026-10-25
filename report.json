@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-25T04:25:22.890Z",
+  "generatedAt": "2026-10-25T05:06:48.642Z",
   "projectPath": "/Users/nolan/Documents/GitHub/water-drop-pc",
   "targetBranch": "main",
   "status": "failed",
@@ -12,14 +12,32 @@
     {
       "name": "ESLint",
       "status": "failed",
-      "output": "npm error could not determine executable to run\nnpm error A complete log of this run can be found in: /Users/nolan/.npm/_logs/2026-10-25T04_24_36_560Z-debug-0.log"
+      "output": "/Users/nolan/Documents/GitHub/water-drop-pc/src/components/CourseSearch/index.tsx\n  20:8  warning  React Hook useEffect has a missing dependency: 'search'. Either include it or remove the dependency array  react-hooks/exhaustive-deps\n\n/Users/nolan/Documents/GitHub/water-drop-pc/src/components/OrgSelect/index.tsx\n  33:8  warning  React Hook useEffect has missing dependencies: 'go' and 'setStore'. Either include them or remove the dependency array  react-hooks/exhaustive-deps\n\n/Users/nolan/Documents/GitHub/water-drop-pc/src/containers/Course/components/EditCourse/index.tsx\n  44:8  warning  React Hook useEffect has missing dependencies: 'form' and 'refetch'. Either include them or remove the dependency array  react-hooks/exhaustive-deps\n\n/Users/nolan/Documents/GitHub/water-drop-pc/src/containers/Login/index.tsx\n   33:7  warning  Fast refresh only works when a file only exports components. Move your component(s) to a separate file  react-refresh/only-export-components\n  246:1  warning  Fast refresh can't handle anonymous components. Add a name to your export                               react-refresh/only-export-components\n\n/Users/nolan/Documents/GitHub/water-drop-pc/src/containers/NoOrg/index.tsx\n  16:8  warning  React Hook useEffect has a missing dependency: 'go'. Either include it or remove the dependency array  react-hooks/exhaustive-deps\n\n/Users/nolan/Documents/GitHub/water-drop-pc/src/containers/Product/components/ConsumerCard/index.tsx\n  35:8  warning  React Hook useEffect has a missing dependency: 'refetch'. Either include it or remove the dependency array  react-hooks/exhaustive-deps\n\n/Users/nolan/Documents/GitHub/water-drop-pc/src/containers/Product/components/EditProduct/index.tsx\n  45:7  warning  React Hook useEffect has missing dependencies: 'form' and 'refetch'. Either include them or remove the dependency array  react-hooks/exhaustive-deps\n\n/Users/nolan/Documents/GitHub/water-drop-pc/src/demo.ts\n  3:1  error  Include a description after the \"@ts-expect-error\" directive to explain why the @ts-expect-error is necessary. The description must be 3 characters or longer  @typescript-eslint/ban-ts-comment\n\n/Users/nolan/Documents/GitHub/water-drop-pc/src/hooks/index.ts\n  9:8  warning  React Hook useEffect has a missing dependency: 'title'. Either include it or remove the dependency array  react-hooks/exhaustive-deps\n\n✖ 10 problems (1 error, 9 warnings)"
     }
   ],
   "review": {
-    "status": "failed",
-    "summary": "AI 代码审查失败。",
-    "issues": [],
-    "error": "Kimi AI 审查失败，已尝试 3 次。原因：Request timed out.",
+    "status": "completed",
+    "summary": "共 1 批，成功 1 批，失败 0 批。\n本次变更共分为 1 批审查。\n合并前发现 2 个问题，去重后保留 2 个问题。\n第 1 批：本次变更带有明显测试性质（App.tsx 注释、demo.ts 演示文件）。核心风险在于 Course 组件中 showCard 状态的初始值由 false 改为 ''，导致其类型从 boolean 变为 string，从命名看该状态是显示/隐藏开关，此改动很可能引发类型错误与功能回归；新增的 demo.ts 通过 @ts-expect-error 故意绕过类型检查，运行时的值与声明类型不一致。",
+    "issues": [
+      {
+        "severity": "P2",
+        "file": "src/containers/Course/index.tsx",
+        "line": 21,
+        "title": "showCard 状态类型由 boolean 被改为 string，存在回归风险",
+        "description": "useState(false) 被改为 useState('') 后，showCard/setShowCard 的类型从 boolean 变为 string。从命名看 showCard 是控制卡片（如弹窗/卡片区域）显示隐藏的布尔开关，组件内 diff 未展示的其他位置极可能存在 setShowCard(true)/setShowCard(false) 调用，或将 showCard 直接传给需要 boolean 的属性（如 Modal 的 open/visible）。这些使用点会产生 TypeScript 类型错误导致构建失败；即便通过隐式真值判断绕过编译，空字符串为 falsy、非空字符串为 truthy 的语义也与原布尔逻辑不一致，容易造成显示状态混乱。",
+        "suggestion": "若该状态仍表示显示开关，应恢复为 useState(false)；若确实需要存储字符串（例如当前卡片 id），建议重命名为 curCardId 等语义化名称，显示条件改为显式判断（如 !!curCardId），并同步修正所有 setShowCard 调用点与属性传递。",
+        "evidence": "-    const [showCard, setShowCard] = useState(false);\n+    const [showCard, setShowCard] = useState('');"
+      },
+      {
+        "severity": "P3",
+        "file": "src/demo.ts",
+        "line": 4,
+        "title": "新增 demo 文件通过 @ts-expect-error 绕过类型检查，运行时值与声明类型不一致",
+        "description": "文件中 const userAge: number = '18' 依赖 @ts-expect-error 抑制编译错误，编译后 userAge 运行时实际为字符串 '18'，与声明的 number 类型不符。若该变量被其他模块引用并参与数值运算（如 userAge + 1），会产生字符串拼接等隐式转换错误。此外将演示用途的文件提交进 src 源码目录，存在被打包进生产代码的风险。",
+        "suggestion": "演示/验证用途的代码不应提交到 src 生产源码目录，建议移除该文件或迁移到测试/文档目录；如需保留示例，应保证声明类型与实际值一致，避免使用 @ts-expect-error 掩盖真实类型错误。",
+        "evidence": "// @ts-expect-error\nconst userAge: number = '18';"
+      }
+    ],
     "changedFiles": [
       {
         "status": "M",

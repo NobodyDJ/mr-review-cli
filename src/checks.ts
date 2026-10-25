@@ -39,7 +39,9 @@ export async function runTypeCheck(projectPath: string): Promise<CheckResult> {
 export function runEslintCheck(projectPath: string): Promise<CheckResult> {
   return new Promise((resolve) => {
     const command = process.platform === 'win32' ? 'cmd.exe' : 'npx'
-    const args = process.platform === 'win32' ? ['/d', '/s', '/c', 'pnpm exec eslint .'] : ['exec', 'eslint', '.']
+    const args = process.platform === 'win32'
+      ? ['/d', '/s', '/c', 'pnpm exec eslint .']
+      : ['--no-install', 'eslint', '.']
     execFile(command, args, { cwd: projectPath, windowsHide: true, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       const output = [stdout, stderr].filter(Boolean).join('\n').trim()
       const hasWarnings = /\bwarning\b/i.test(output)

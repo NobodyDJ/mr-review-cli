@@ -7,7 +7,9 @@ describe('mergeReviewResults', () => {
       { summary: '发现一个问题', issues: [] },
     ])
 
-    expect(result.summary).toBe('第 1 批：发现一个问题')
+    expect(result.summary).toBe(
+      '本次变更共分为 1 批审查。\n合并前发现 0 个问题，去重后保留 0 个问题。\n第 1 批：发现一个问题',
+    )
     expect(result.issues).toEqual([])
   })
 
@@ -17,6 +19,8 @@ describe('mergeReviewResults', () => {
       { summary: '问题二', issues: [] },
     ])
 
-    expect(result.summary).toBe('本次变更共分为 2 批审查。\n第 1 批：问题一\n第 2 批：问题二')
+    expect(result.summary).toBe(
+      '本次变更共分为 2 批审查。\n合并前发现 0 个问题，去重后保留 0 个问题。\n第 1 批：问题一\n第 2 批：问题二',
+    )
   })
 })
