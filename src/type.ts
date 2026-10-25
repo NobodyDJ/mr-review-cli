@@ -1,5 +1,3 @@
-import type { reviewCode } from "./kimi.js"
-
 type ChangedFile = {
   status: string
   path: string
@@ -29,7 +27,7 @@ type ReviewResult = {
 type ProjectReviewResult = {
   status: 'completed' | 'skipped' | 'failed'
   summary: string
-  issues: Awaited<ReturnType<typeof reviewCode>>['issues']
+  issues: ReviewIssue[]
   error?: string
   changedFiles: ChangedFile[]
   reviewTargets: ChangedFile[]

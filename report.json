@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-25T03:43:20.615Z",
+  "generatedAt": "2026-10-25T04:25:22.890Z",
   "projectPath": "/Users/nolan/Documents/GitHub/water-drop-pc",
   "targetBranch": "main",
   "status": "failed",
@@ -12,32 +12,14 @@
     {
       "name": "ESLint",
       "status": "failed",
-      "output": "npm error could not determine executable to run\nnpm error A complete log of this run can be found in: /Users/nolan/.npm/_logs/2026-10-25T03_42_40_505Z-debug-0.log"
+      "output": "npm error could not determine executable to run\nnpm error A complete log of this run can be found in: /Users/nolan/.npm/_logs/2026-10-25T04_24_36_560Z-debug-0.log"
     }
   ],
   "review": {
-    "status": "completed",
-    "summary": "第 1 批：本次变更中，Course 组件将 showCard 状态从 boolean 改为 string 类型，属于明确的类型不一致回归，很可能破坏该状态的既有用法；新增的 demo.ts 使用 @ts-expect-error 压制了真实存在的类型错误，导致运行时值与声明类型不符；App.tsx 仅新增注释，无问题。",
-    "issues": [
-      {
-        "severity": "P2",
-        "file": "src/containers/Course/index.tsx",
-        "line": 21,
-        "title": "showCard 状态类型由 boolean 被改为 string，存在回归风险",
-        "description": "showCard 与相邻的 showInfo、showOrderTime 一样，语义上是控制弹窗/卡片显隐的布尔状态。本次将其初始值从 false 改为 '' 后，useState 推断类型变为 string。若组件其他位置仍按布尔值使用（如 setShowCard(true)、setShowCard(false)、<Modal open={showCard}> 或 showCard && ...），会产生 TypeScript 类型错误导致构建失败；即使绕过类型检查，运行时传入 true/false 或依赖布尔判断的逻辑也会出现行为异常（例如非空字符串在条件判断中恒为真，可能导致卡片无法关闭）。",
-        "suggestion": "恢复为 const [showCard, setShowCard] = useState(false);，保持与 showInfo、showOrderTime 一致的布尔语义；如确需字符串语义，应同步修改所有 setShowCard 调用点和 showCard 的消费处，并使用更明确的命名。",
-        "evidence": "const [showCard, setShowCard] = useState(''); 上下文中 showInfo、showOrderTime 均为 useState(false) 的显隐控制状态"
-      },
-      {
-        "severity": "P3",
-        "file": "src/demo.ts",
-        "line": 4,
-        "title": "使用 @ts-expect-error 压制真实类型错误，运行时值与声明类型不符",
-        "description": "代码将字符串 '18' 赋值给声明为 number 的 userAge，并用 @ts-expect-error 抑制编译报错而非修复问题。编译后 userAge 在运行时实际为字符串，任何依赖 number 类型的操作（如算术运算、比较、传递给期望 number 的函数）都会得到错误结果。虽然注释表明这是演示用法，但若该文件被打包进正式产物，会把隐患带入运行时。",
-        "suggestion": "不要用 @ts-expect-error 掩盖可修复的类型错误，直接改为 const userAge: number = 18;（或 Number('18')）。若该文件仅用于演示/测试，建议移出源码目录或加入构建排除，避免进入生产产物。",
-        "evidence": "// @ts-expect-error\nconst userAge: number = '18';"
-      }
-    ],
+    "status": "failed",
+    "summary": "AI 代码审查失败。",
+    "issues": [],
+    "error": "Kimi AI 审查失败，已尝试 3 次。原因：Request timed out.",
     "changedFiles": [
       {
         "status": "M",
