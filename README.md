@@ -104,3 +104,7 @@ npx tsx src/test-kimi.ts
 - 静态检查作用于目标项目整体，而不是仅作用于本次变更文件。
 - ESLint 检查当前使用 `pnpm exec eslint .`，因此目标项目需要可用的 pnpm 与 ESLint 配置。
 - AI 审查质量取决于 diff 内容和所配置的 Moonshot 模型；模型输出不替代人工审查或项目 CI。
+
+## 读取json文件
+
+- python3 -c 'import json; print(json.dumps(json.load(open("report.json", encoding="utf-8")), ensure_ascii=False, indent=2))'

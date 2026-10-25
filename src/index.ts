@@ -1,10 +1,17 @@
-﻿
-import { execFile } from 'node:child_process'
+﻿import { execFile } from 'node:child_process'
 import { access, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { ChangedFile, CheckResult, ProjectReviewResult } from './type.js'
 import { reviewCode } from './kimi.js'
 import { pathToFileURL } from 'node:url'
+
+/**
+ * 单个 AI 审查批次的最大 Diff 字符数。
+ *
+ * reviewCode() 中还有 40,000 字符的硬限制，
+ * 因此这里留出一定余量。
+ */
+const MAX_REVIEW_DIFF_CHARS = 35_000
 
 function getGitDiff(
   projectPath: string,
@@ -32,30 +39,49 @@ function getGitDiff(
 }
 
 /**
- * 获取变更文件列表
- * @param targetBranch 目标分支
- * @returns 变更文件列表
+ * 根据 Git diff 的文件边界拆分审查内容。
+ *
+ * 尽量保证一个文件的 diff 不被拆开，
+ * 多个文件可以合并到同一个批次。
  */
-function getChangedFiles(targetBranch: string): Promise<string[]> {
-	return new Promise((resolve, reject) => {
-		execFile(
-		'git',
-		['diff', '--name-only', `${targetBranch}...HEAD`, '--'],
-		(error, stdout, stderr) => {
-			if (error) {
-				reject(new Error(stderr.trim() || error.message))
-				return
-			}
+export function splitDiffIntoChunks(diff: string): string[] {
+  const fileDiffs = diff
+    .split(/(?=^diff --git )/m)
+    .filter((fileDiff) => fileDiff.trim())
 
-			const files = stdout
-			.split('\n')
-			.map((file) => file.trim())
-			.filter(Boolean)
+  if (fileDiffs.length === 0) {
+    return []
+  }
 
-			resolve(files)
-		},
-		)
-	})
+  const chunks: string[] = []
+  let currentChunk = ''
+
+  for (const fileDiff of fileDiffs) {
+    // 单个文件的 diff 超过限制时，暂时无法按文件边界拆分
+    if (fileDiff.length > MAX_REVIEW_DIFF_CHARS) {
+      throw new Error(
+        `单个文件的 diff 过大：${fileDiff.length} 字符，` +
+        `超过单批次限制 ${MAX_REVIEW_DIFF_CHARS} 字符。`,
+      )
+    }
+
+    const nextChunk = currentChunk
+      ? `${currentChunk}\n${fileDiff}`
+      : fileDiff
+
+    if (nextChunk.length > MAX_REVIEW_DIFF_CHARS) {
+      chunks.push(currentChunk)
+      currentChunk = fileDiff
+    } else {
+      currentChunk = nextChunk
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk)
+  }
+
+  return chunks
 }
 
 /**
@@ -258,16 +284,43 @@ function runEslintCheck(
 /**
  * 审查项目并返回结构化结果
  */
+
+/**
+ * 审查项目并返回结构化结果
+ */
 async function reviewProject(
   projectPath: string,
   targetBranch: string,
 ): Promise<ProjectReviewResult> {
-  const filesWithStatus = await getChangedFilesWithStatus(
-    projectPath,
-    targetBranch,
-  )
+  const emptyIssues: ProjectReviewResult['issues'] = []
+
+  let filesWithStatus: ChangedFile[]
+
+  // 第一步：获取变更文件列表
+  try {
+    filesWithStatus = await getChangedFilesWithStatus(
+      projectPath,
+      targetBranch,
+    )
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error)
+
+    console.error('\n[Git 获取变更文件失败]')
+    console.error(errorMessage)
+
+    return {
+      status: 'failed',
+      summary: '获取 Git 变更文件失败。',
+      issues: emptyIssues,
+      error: errorMessage,
+      changedFiles: [],
+      reviewTargets: [],
+    }
+  }
 
   console.log('\n本次变更文件状态：')
+
   if (filesWithStatus.length === 0) {
     console.log('没有变更文件')
   } else {
@@ -276,9 +329,11 @@ async function reviewProject(
     })
   }
 
+  // 第二步：筛选需要审查的文件
   const reviewTargets = getReviewTargets(filesWithStatus)
 
   console.log('\n待审查文件：')
+
   if (reviewTargets.length === 0) {
     console.log('没有需要审查的新增或修改文件')
   } else {
@@ -287,8 +342,7 @@ async function reviewProject(
     })
   }
 
-  const emptyIssues: ProjectReviewResult['issues'] = []
-
+  // 没有符合条件的文件，跳过 AI 审查
   if (reviewTargets.length === 0) {
     console.log('跳过代码审查：没有符合条件的代码文件。')
 
@@ -301,12 +355,33 @@ async function reviewProject(
     }
   }
 
-  const diff = await getGitDiff(
-    projectPath,
-    targetBranch,
-    reviewTargets.map(({ path }) => path),
-  )
+  // 第三步：获取 Git diff
+  let diff: string
 
+  try {
+    diff = await getGitDiff(
+      projectPath,
+      targetBranch,
+      reviewTargets.map(({ path }) => path),
+    )
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error)
+
+    console.error('\n[Git 获取 diff 失败]')
+    console.error(errorMessage)
+
+    return {
+      status: 'failed',
+      summary: '获取 Git diff 失败。',
+      issues: emptyIssues,
+      error: errorMessage,
+      changedFiles: filesWithStatus,
+      reviewTargets,
+    }
+  }
+
+  // diff 为空，跳过 AI 审查
   if (!diff.trim()) {
     console.log('没有发现符合条件的代码差异。')
 
@@ -324,31 +399,74 @@ async function reviewProject(
 
   console.log('\n========== Kimi 代码审查 ==========')
 
+  // 第四步：拆分 Diff
+  const diffChunks = splitDiffIntoChunks(diff)
+
+  if (diffChunks.length === 0) {
+    return {
+      status: 'skipped',
+      summary: '没有可供审查的代码差异。',
+      issues: emptyIssues,
+      changedFiles: filesWithStatus,
+      reviewTargets,
+    }
+  }
+
+  console.log(
+    `\n本次 Diff 共 ${diff.length} 字符，拆分为 ${diffChunks.length} 个审查批次。`,
+  )
+
+  // 第五步：逐批调用 AI，并合并审查结果
   try {
-    const reviewResult = await reviewCode(diff)
+    const mergedIssues: ProjectReviewResult['issues'] = []
+    const summaries: string[] = []
 
-    console.log('\n审查摘要：')
-    console.log(reviewResult.summary)
+    for (let i = 0; i < diffChunks.length; i++) {
+      const chunk = diffChunks[i]
 
-    console.log('\n发现的问题：')
+      console.log(
+        `\n========== Kimi 审查：第 ${i + 1}/${diffChunks.length} 批 ==========`,
+      )
 
-    if (reviewResult.issues.length === 0) {
-      console.log('未发现明确的代码缺陷。')
-    } else {
-      for (const issue of reviewResult.issues) {
-        console.log(`\n[${issue.severity}] ${issue.title}`)
-        console.log(`文件：${issue.file}`)
-        console.log(`行号：${issue.line ?? '未知'}`)
-        console.log(`问题：${issue.description}`)
-        console.log(`建议：${issue.suggestion}`)
-        console.log(`依据：${issue.evidence}`)
+      if (chunk === undefined) {
+        continue
       }
+
+      const reviewResult = await reviewCode(chunk)
+
+      summaries.push(
+        `第 ${i + 1} 批：${reviewResult.summary}`,
+      )
+
+      mergedIssues.push(...reviewResult.issues)
+
+      console.log(reviewResult.summary)
+      console.log(`本批发现 ${reviewResult.issues.length} 个问题。`)
+    }
+
+    const mergedSummary =
+      diffChunks.length === 1
+        ? summaries[0] ?? ''
+        : `本次变更共分为 ${diffChunks.length} 批审查。\n${summaries.join('\n')}`
+
+    console.log('\n========== 合并审查结果 ==========')
+    console.log(mergedSummary)
+
+    console.log(`\n总共发现 ${mergedIssues.length} 个问题。`)
+
+    for (const issue of mergedIssues) {
+      console.log(`\n[${issue.severity}] ${issue.title}`)
+      console.log(`文件：${issue.file}`)
+      console.log(`行号：${issue.line ?? '未知'}`)
+      console.log(`问题：${issue.description}`)
+      console.log(`建议：${issue.suggestion}`)
+      console.log(`依据：${issue.evidence}`)
     }
 
     return {
       status: 'completed',
-      summary: reviewResult.summary,
-      issues: reviewResult.issues,
+      summary: mergedSummary,
+      issues: mergedIssues,
       changedFiles: filesWithStatus,
       reviewTargets,
     }
@@ -358,7 +476,6 @@ async function reviewProject(
 
     console.error('\n[Kimi 审查失败]')
     console.error(errorMessage)
-    console.log('跳过 AI 审查，继续执行本地检查。')
 
     return {
       status: 'failed',
@@ -369,7 +486,9 @@ async function reviewProject(
       reviewTargets,
     }
   }
+
 }
+
 
 /**
  * 打印检查摘要
