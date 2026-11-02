@@ -29,14 +29,25 @@ const kimi = new OpenAI({
 /**
  * 判断错误是否值得重试
  */
+
+/**
+ * 判断错误是否值得重试
+ */
 function isRetryableError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) {
     return false
   }
 
   const err = error as {
+    name?: string
+    message?: string
     status?: number
     code?: string
+    cause?: {
+      name?: string
+      message?: string
+      code?: string
+    }
   }
 
   // HTTP 429：请求过于频繁
@@ -53,7 +64,24 @@ function isRetryableError(error: unknown): boolean {
     return true
   }
 
-  // 网络错误、连接中断、超时等
+  // OpenAI SDK 网络和超时异常
+  if (
+    err.name === 'APIConnectionTimeoutError' ||
+    err.name === 'APIConnectionError' ||
+    err.cause?.name === 'APIConnectionTimeoutError' ||
+    err.cause?.name === 'APIConnectionError'
+  ) {
+    return true
+  }
+
+  // 明确的请求超时错误
+  if (
+    typeof err.message === 'string' &&
+    /^request timed out\.?$/i.test(err.message.trim())
+  ) {
+    return true
+  }
+
   const retryableCodes = [
     'ETIMEDOUT',
     'ECONNRESET',
@@ -63,9 +91,12 @@ function isRetryableError(error: unknown): boolean {
     'ECONNABORTED',
   ]
 
-  return typeof err.code === 'string' &&
-    retryableCodes.includes(err.code)
+  const code = err.code ?? err.cause?.code
+
+  return typeof code === 'string' &&
+    retryableCodes.includes(code)
 }
+
 
 /**
  * 等待指定时间
@@ -96,6 +127,7 @@ export async function reviewCode(diff: string): Promise<ReviewResult> {
   let lastError: unknown
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const startTime = Date.now()
     try {
       const response = await kimi.chat.completions.create({
         model: process.env.MOONSHOT_MODEL || 'kimi-k3',
@@ -177,6 +209,22 @@ export async function reviewCode(diff: string): Promise<ReviewResult> {
     } catch (error: unknown) {
       lastError = error
 
+      console.error('Kimi 请求失败详情：', {
+        attempt,
+        duration: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
+        name: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message : String(error),
+        code:
+          typeof error === 'object' && error !== null
+            ? (error as { code?: string }).code
+            : undefined,
+        status:
+          typeof error === 'object' && error !== null
+            ? (error as { status?: number }).status
+            : undefined,
+        cause: error instanceof Error ? error.cause : undefined,
+      })
+
       // 最后一次失败，不再重试
       if (attempt === MAX_ATTEMPTS) {
         break
@@ -187,7 +235,7 @@ export async function reviewCode(diff: string): Promise<ReviewResult> {
         break
       }
 
-      // 指数退避：第 1 次失败等 1 秒，第 2 次失败等 2 秒
+      // 第一次请求失败后等待 1 秒，再进行最后一次尝试
       const delay = RETRY_DELAY * 2 ** (attempt - 1)
 
       console.warn(
