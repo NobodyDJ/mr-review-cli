@@ -1,6 +1,7 @@
 import type { ChangedFile, ProjectReviewResult, ReviewResult, ReviewIssue } from './type.js'
 import { reviewCode } from './kimi.js'
 import { getChangedFilesWithStatus, getGitDiff, getReviewTargets, splitDiffIntoChunks } from './git.js'
+import { writeFile } from 'node:fs/promises'
 
 const emptyIssues = (): ProjectReviewResult['issues'] => []
 
@@ -55,6 +56,9 @@ export async function reviewProject(projectPath: string, targetBranch: string): 
   let diff: string
   try {
     diff = await getGitDiff(projectPath, targetBranch, reviewTargets.map(({ path }) => path))
+    await writeFile('./test-diff.txt', diff, 'utf-8')
+
+    console.log(`测试 Diff 已保存，共 ${diff.length} 字符`)
   } catch (error) {
     const result = failure('获取 Git diff 失败。', error, filesWithStatus, reviewTargets)
     console.error('\n[Git 获取 diff 失败]')
